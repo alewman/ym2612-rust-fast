@@ -1,17 +1,80 @@
-# ym2612-rust
+# ym2612-rust-fast
 
-A Rust Yamaha **YM2612** (OPN2) and **YM3438** core transcribed from
-[ym2612-python](https://github.com/alewman/ym2612-python) and proven equivalent to
-it on every internal cycle: whether the chip ran or was held, the slot it served,
-both DAC pins, the status byte, /IRQ, and the value of every read. ym2612-python is
-in turn equal to **Nuked-OPN2**, a transcription of the YM3438's die, on every cycle
-of the same 18 streams (663,015,150 values, 0 different), so the two results compose.
+A fast fork of [ym2612-rust](https://github.com/alewman/ym2612-rust), the Rust
+transcription of [ym2612-python](https://github.com/alewman/ym2612-python), the
+Yamaha YM2612 (OPN2) and YM3438. It stays provably equivalent to the reference on
+every internal cycle, with the same ladder, every rung, on every commit that touches
+`src/`. Each optimization is one commit with its measurement. A change that does not
+pay is reverted and recorded as not kept.
 
-`src/chip.rs` is `chip.py` function for function, in the same order, with the same
-names and the same citations of the die models. `src/conformance.rs` is the
-reference's manifest reader and trace writer. Nothing is redesigned: where Rust
-forced a difference, the module header says what it is. Speed is the job of a
-`-fast` fork, as z80-rust-fast and m68000-rust-fast are for their CPUs.
+The crate keeps the name `ym2612_rust` and ym2612-rust's API, so a host written for
+ym2612-rust compiles unchanged. [docs/handoff-brief.md](docs/handoff-brief.md) is the
+request and its reading, and [docs/build-record.md](docs/build-record.md) is what
+happened.
+
+## Speed
+
+The measure is `scripts/bench.sh`: three workloads driven through `run()` as a board
+drives the chip, the first two emulated seconds of each, with the generator on:
+- the reference's benchmark stream, the seed-1 random walk of 40,000 writes on the
+  discrete chip;
+- where the exported board streams are present (local, since they are derived from
+  ROMs), Gunstar Heroes' own register traffic on the discrete chip;
+- the same for Sonic the Hedgehog on the ASIC.
+
+Every ratio is from `scripts/ab.sh`. The base commit and the candidate are built
+under three code layouts (64- and 32-byte branch-target alignment, and none) and run
+alternately on one core of a shared i9-13900K, best of 5 or 7 each. The ratio is the
+result.
+
+| Commit | Change | Ratio (min over layouts) |
+| --- | --- | ---: |
+| `111e670` | the fork point: ym2612-rust's transcription, with the harness | -- |
+| `a1bc6e4` | `slot_ahead(k)`, a compare and a subtraction, for the ten `(cycles + k) % 24` | x1.068 |
+| `75c6dd2` | release profile: one codegen unit, fat LTO | x1.036 |
+| | **at `75c6dd2` against `111e670`** | **x1.106** |
+
+Measured and not kept: the cycle compiled once per slot (const generic, 24 copies),
+x0.89, because the copies overflow the instruction cache. `#[inline(always)]` on every
+stage gave x1.015 and the algorithm table folded into bitmasks x1.011, both noise.
+
+At `75c6dd2`, best of 10, one pinned core, 2026-10-11:
+
+| Workload | Generator on | Quiet path |
+| --- | ---: | ---: |
+| random walk, discrete | 20.0 M cycles/s, **15.7x real time** | 68.6x |
+| Gunstar Heroes, discrete | 24.0 M cycles/s, **18.8x** | 82.4x |
+| Sonic the Hedgehog, ASIC | 24.1 M cycles/s, **18.9x** | 76.8x |
+
+The reference on CPython 3.14 runs the random walk at 0.104x real time.
+
+**Where it stands.** No single stage dominates; an ablation (the build record) puts
+the largest at 14% of the cycle. Every further cut measured was within the noise: the
+trace contract pins all 17 stages on every internal cycle, so there is little left to
+remove. That is m68000-rust-fast's conclusion too. A step change would need a
+different kind of core, such as stretches without writes fast-forwarded in closed
+form with every pin kept exact. At this speed the FM chip costs a Mega Drive board
+about 6% of one desktop core, so nothing yet says that is needed.
+
+## On WebAssembly (phones and browsers)
+
+`scripts/wasm-check.sh` proves the core in WebAssembly rather than assuming the
+native results carry over. In wasm32 the ROM tables come from Rust's own `libm`, not
+the system's. The script builds `wasm-check/`, a 3.9 MB module with the thirteen
+example manifests and reference traces built in, and runs it under Node. At
+`75c6dd2`, 2026-10-11, Node 22.19 on the i9:
+
+| Check | Result |
+| --- | --- |
+| Rung 1: both tables hashed in wasm against ym2612-python's pinned SHA-256 | both pinned |
+| Rung 2: the 13 example manifests, every line against the reference trace | 13 of 13 match |
+| Speed: `voices-ym2612` (six sounding channels) for 2 emulated seconds | 26.5 M cycles/s, **20.7x real time** (native: 29.6x, so wasm is 70%) |
+
+The ladder's +1 removed drops rung 2 to 6 of 13, so the check bites. Rungs 3-5 run
+natively only; the module runs the same source. A phone will be slower than this
+desktop. At wasm's 70% of native, even a phone at a quarter of this machine's speed
+would run the FM chip at about 5x real time. Measuring that on a real phone is the
+next step, with the board.
 
 ## Certification
 
@@ -23,8 +86,9 @@ Pinned oracles:
 | Manifest and trace formats | manifest version 1, `# ym2612-trace 1` |
 
 The ladder is the reference's own (its `docs/conformance.md`, "Certification ladder
-for a port"). Every rung was reproduced with the script named (`scripts/`) on 2026-10-11:
-Linux x86_64, rustc 1.93.1, the reference on CPython 3.14.4.
+for a port"). Every rung is rerun by `scripts/ladder.sh` on each commit that touches `src/`, most
+recently at `75c6dd2` on 2026-10-11 (Linux x86_64, rustc 1.93.1, the reference on
+CPython 3.14.4); the results below are unchanged from ym2612-rust.
 
 | Rung | What | Result | Script |
 | --- | --- | --- | --- |
@@ -39,7 +103,7 @@ Rungs 3 and 4 together are every cycle of the reference's Nuked-OPN2 record
 the reference compared with the die model. Each stream's manifest writes at
 `cycle × 42` ticks, which is where the reference's `replay` writes.
 
-**A gate that cannot fail proves nothing.** `scripts/seeded_faults.py` breaks this
+**A gate that cannot fail proves nothing.** `scripts/seeded_faults.py` breaks the
 core in twelve places, one at a time, in a copy of the repository: the ladder's +1,
 BUSY's length, detune's sign, feedback, the slowest LFO reload, SSG-EG's rate, timer
 B's period, /IC's pause carry, the DAC's sign bit, the $27 delay, key-on's operator
@@ -53,7 +117,7 @@ the other three:
 The reference records the decay gap in its own examples. The other two are gaps in
 its examples that this port found (see "Notes for the reference").
 
-CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D
+CI (`.github/workflows/ci.yml`, if this repository is pushed) runs `cargo fmt --check`, `cargo clippy -D
 warnings`, `cargo test` and rung 1 on main and pull requests. `cargo test` replays
 the thirteen example manifests against copies of the reference traces, without
 Python. Rungs 2-5 need the reference checked out, which is a private repository, so
@@ -69,7 +133,10 @@ scripts/rung3.sh                  # writes the manifests into external/manifests
 scripts/rung4.sh [streams dir]    # needs the reference's exported board streams, below
 scripts/rung5.sh [count] [seed]   # 128 from seed 1 by default
 python3 scripts/seeded_faults.py  # after rungs 3 and 5, which write the manifests it reuses
+scripts/ladder.sh                 # rungs 1-5, stopping at the first that fails
 scripts/bench.sh
+scripts/ab.sh [BASE]              # base against the working tree, alternately
+scripts/wasm-check.sh
 ```
 
 Each rung writes this core's trace and pipes it to the reference's own
@@ -122,25 +189,8 @@ The pipeline's state is public so a debugger can look at it. It is not a contrac
 - `ym2612-trace <manifest> [--out FILE]`: run a conformance manifest and write its
   trace (rungs 2-5).
 - `ym2612-tables log_sin|exp`: a table as rung 1 hashes it.
-- `ym2612-bench <manifest>`: the reference's benchmark, through `run()`.
-
-## Speed
-
-`scripts/bench.sh` runs the reference's benchmark: the first two seconds of the seed-1
-random walk (40,000 writes) through `run()`, as a board drives the chip, best of 20.
-Measured on one pinned core of an i9-13900K that other jobs were sharing (load average
-12 on 32 threads), 2026-10-11:
-
-| | Generator on | Quiet path (`enabled = false`) |
-| --- | ---: | ---: |
-| ym2612-rust | 18.4 M cycles/s, **14.4× real time** | 75.9 M cycles/s, 59.3× |
-| ym2612-python, CPython 3.14.4 (its record) | 133 k cycles/s, 0.104× | 541 k cycles/s, 0.423× |
-| ym2612-python, PyPy 7.3.20 (its record) | 35.6 k cycles/s, 0.028× | 161 k cycles/s, 0.126× |
-
-Real time is 1,278,409 internal cycles a second (NTSC), so this core is 139 times
-the reference on CPython. The library also builds for `wasm32-unknown-unknown`.
-Running the ladder inside WebAssembly, where the tables come from Rust's own `libm`,
-is the `-fast` fork's check, as it was for m68000-rust-fast.
+- `ym2612-bench [--seconds S] [--repeat N] [--mode on|quiet|both] [--past-end] <manifest>...`:
+  the benchmark, through `run()`, with a `total` line for `scripts/ab.sh`.
 
 ## Notes for the reference
 
@@ -152,9 +202,10 @@ would close the gap.
 
 ## Where the brief is
 
-[docs/handoff-brief.md](docs/handoff-brief.md) is the request this repository was
-built from and the plan read from it, and [docs/build-record.md](docs/build-record.md)
-is what happened.
+This fork's: [docs/handoff-brief.md](docs/handoff-brief.md) and
+[docs/build-record.md](docs/build-record.md). ym2612-rust's, carried over:
+[docs/ym2612-rust-handoff-brief.md](docs/ym2612-rust-handoff-brief.md) and
+[docs/ym2612-rust-build-record.md](docs/ym2612-rust-build-record.md).
 
 ## License
 

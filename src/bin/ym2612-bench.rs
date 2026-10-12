@@ -3,7 +3,8 @@
 //! reference's `benchmarks/bench.py` measures it.
 //!
 //! Each manifest's writes are driven through `run()` as a board drives the chip, for
-//! its first `--seconds` of emulated time (or all of it, if shorter), in the
+//! its first `--seconds` of emulated time (or all of it, if shorter, unless
+//! `--past-end`, which runs on after its last event), in the
 //! manifest's own variant, with the generator on and/or off (the quiet path).
 //! `scripts/bench.sh` makes the workloads: the reference's stream (the seed-1 random
 //! walk of 40,000 writes) and, where the exported board streams are present, two
@@ -51,8 +52,13 @@ fn main() -> ExitCode {
         .unwrap_or(2.0);
     let repeat: usize = take("--repeat").and_then(|v| v.parse().ok()).unwrap_or(10);
     let mode = take("--mode").unwrap_or_else(|| "both".into());
+    let past_end = args
+        .iter()
+        .position(|a| a == "--past-end")
+        .map(|i| args.remove(i))
+        .is_some();
     if args.is_empty() || !["on", "quiet", "both"].contains(&mode.as_str()) {
-        eprintln!("usage: ym2612-bench [--seconds S] [--repeat N] [--mode on|quiet|both] <manifest.json>...");
+        eprintln!("usage: ym2612-bench [--seconds S] [--repeat N] [--mode on|quiet|both] [--past-end] <manifest.json>...");
         return ExitCode::from(2);
     }
     let modes: Vec<(&str, bool)> = [("generator on", true), ("quiet path", false)]
@@ -68,7 +74,10 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         };
-        let cycles = ((REAL_TIME * seconds) as i64).min(manifest.ticks / MCLK_PER_CYCLE);
+        let mut cycles = (REAL_TIME * seconds) as i64;
+        if !past_end {
+            cycles = cycles.min(manifest.ticks / MCLK_PER_CYCLE);
+        }
         println!(
             "{} ({}), {cycles} cycles, best of {repeat}",
             manifest.name, manifest.variant
