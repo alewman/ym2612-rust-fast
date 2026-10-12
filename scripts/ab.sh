@@ -10,7 +10,7 @@
 #
 # Usage: scripts/ab.sh [BASE (default HEAD)]
 #   env: CPU (default 31), ROUNDS (default 7), LAYOUTS (default "default noalign nf5"),
-#        MODE (on, the default, or quiet), SECONDS (default 2)
+#        MODE (on, the default, or quiet), BENCH_SECONDS (emulated, default 2)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BASE=${1:-HEAD}
@@ -18,7 +18,7 @@ CPU=${CPU:-31}
 ROUNDS=${ROUNDS:-7}
 LAYOUTS=${LAYOUTS:-"default noalign nf5"}
 MODE=${MODE:-on}
-SECONDS_=${SECONDS:-2}
+BENCH_SECONDS=${BENCH_SECONDS:-2}
 declare -A FLAGS=(
     [default]=""
     [noalign]="-C opt-level=3"
@@ -50,7 +50,7 @@ for layout in $LAYOUTS; do
     for _ in $(seq "$ROUNDS"); do
         for side in a b; do
             bin=$a; [ $side = b ] && bin=$b
-            t=$(BENCH_BIN=$bin taskset -c "$CPU" "$ROOT/scripts/bench.sh" --repeat 1 --mode "$MODE" --seconds "$SECONDS_" | seconds)
+            t=$(BENCH_BIN=$bin taskset -c "$CPU" "$ROOT/scripts/bench.sh" --repeat 1 --mode "$MODE" --seconds "$BENCH_SECONDS" | seconds)
             if [ $side = a ]; then
                 [ -z "$best_a" ] || awk "BEGIN{exit !($t < $best_a)}" && best_a=$t
             else

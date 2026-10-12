@@ -702,6 +702,19 @@ impl YM2612 {
         self.writes = 0;
     }
 
+    /// The slot `ahead` cycles on from the current one, `ahead` < 24: each stage of
+    /// the pipeline works that many slots away from the one being served. A compare
+    /// and a subtraction where `% 24` was a multiply and a shift.
+    #[inline(always)]
+    fn slot_ahead(&self, ahead: usize) -> usize {
+        let slot = self.cycles + ahead;
+        if slot >= 24 {
+            slot - 24
+        } else {
+            slot
+        }
+    }
+
     /// Internal cycles still to stand still after an /IC assertion.
     pub fn ic_hold(&self) -> i32 {
         self.ic_hold
@@ -786,7 +799,7 @@ impl YM2612 {
     /// Register $21 bit 6 puts the chip's internals on the status port instead
     /// (`ym3438.c` lines 1374-1392). Nemesis's test ROMs use it.
     fn test_read(&self) -> i32 {
-        let slot = (self.cycles + 18) % 24;
+        let slot = self.slot_ahead(18);
         let mut data =
             ((self.pg_read & 1) << 15) | ((self.eg_read[self.mode_test_21[0] as usize] & 1) << 14);
         if self.mode_test_2c[4] != 0 {
@@ -949,7 +962,7 @@ impl YM2612 {
         self.update_lfo();
         self.register_write();
 
-        let cycles = (cycles + 1) % 24;
+        let cycles = if cycles == 23 { 0 } else { cycles + 1 };
         self.cycles = cycles;
         self.channel = cycles % 6;
         if self.status_time != 0 {
@@ -977,7 +990,7 @@ impl YM2612 {
         self.timer_b();
         self.key_on();
         self.register_write();
-        let cycles = (self.cycles + 1) % 24;
+        let cycles = self.slot_ahead(1);
         self.cycles = cycles;
         self.channel = cycles % 6;
         if self.status_time != 0 {
@@ -1263,11 +1276,11 @@ impl YM2612 {
     /// The phase accumulators, 19 and 20 cycles behind the increment's calculation
     /// (`ym3438.c` `OPN2_PhaseGenerate`, lines 452-468).
     fn phase_generate(&mut self) {
-        let slot = (self.cycles + 20) % 24;
+        let slot = self.slot_ahead(20);
         if self.pg_reset[slot] != 0 {
             self.pg_inc[slot] = 0;
         }
-        let slot = (self.cycles + 19) % 24;
+        let slot = self.slot_ahead(19);
         if self.pg_reset[slot] != 0 || self.mode_test_21[3] != 0 {
             self.pg_phase[slot] = 0;
         }
@@ -1387,7 +1400,7 @@ impl YM2612 {
     /// The envelope's state and level, two cycles behind the current slot (`ym3438.c`
     /// `OPN2_EnvelopeADSR`, lines 562-694).
     fn envelope_adsr(&mut self) {
-        let slot = (self.cycles + 22) % 24;
+        let slot = self.slot_ahead(22);
         let nkon = self.eg_kon_latch[slot] != 0;
         let okon = self.eg_kon[slot] != 0;
         let state = self.eg_state[slot];
@@ -1467,7 +1480,7 @@ impl YM2612 {
     /// plus the LFO's tremolo and the total level (`ym3438.c`
     /// `OPN2_EnvelopeGenerate`, lines 802-834).
     fn envelope_output(&mut self) {
-        let slot = (self.cycles + 23) % 24;
+        let slot = self.slot_ahead(23);
         let mut level = self.eg_level[slot];
         if self.eg_ssg_inv[slot] != 0 {
             level = 512 - level;
@@ -1558,11 +1571,11 @@ impl YM2612 {
     /// outputs into their holding latches (`ym3438.c` `OPN2_FMPrepare`, lines
     /// 850-895). Operator 1's feedback is its last *two* outputs summed and shifted.
     fn fm_prepare(&mut self) {
-        let slot = (self.cycles + 6) % 24;
+        let slot = self.slot_ahead(6);
         let channel = self.channel;
         let op = slot / 6;
         let connect = self.connect[channel] as usize;
-        let prevslot = (self.cycles + 18) % 24;
+        let prevslot = self.slot_ahead(18);
         let rows = &FM_ALGORITHM[op];
         let mut mod1 = 0;
         let mut mod2 = 0;
@@ -1605,7 +1618,7 @@ impl YM2612 {
     /// envelope, through the exponential (`ym3438.c` `OPN2_FMGenerate`, lines
     /// 1012-1045). The result is 14 bits signed.
     fn fm_generate(&mut self) {
-        let slot = (self.cycles + 19) % 24;
+        let slot = self.slot_ahead(19);
         let phase = (self.fm_mod[slot] + (self.pg_phase[slot] >> 10)) & 0x3FF;
         let quarter = if phase & 0x100 != 0 {
             (phase ^ 0xFF) & 0xFF
@@ -1629,7 +1642,7 @@ impl YM2612 {
     /// The channel's accumulator: the operators the algorithm sends to the output,
     /// summed and clamped to nine bits (`ym3438.c` `OPN2_ChGenerate`, lines 897-935).
     fn ch_generate(&mut self) {
-        let slot = (self.cycles + 18) % 24;
+        let slot = self.slot_ahead(18);
         let channel = self.channel;
         let op = slot / 6;
         let test_dac = self.mode_test_2c[5];

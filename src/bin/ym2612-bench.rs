@@ -46,7 +46,9 @@ fn main() -> ExitCode {
         args.drain(i..(i + 2).min(args.len()));
         value
     };
-    let seconds: f64 = take("--seconds").and_then(|v| v.parse().ok()).unwrap_or(2.0);
+    let seconds: f64 = take("--seconds")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2.0);
     let repeat: usize = take("--repeat").and_then(|v| v.parse().ok()).unwrap_or(10);
     let mode = take("--mode").unwrap_or_else(|| "both".into());
     if args.is_empty() || !["on", "quiet", "both"].contains(&mode.as_str()) {
@@ -67,7 +69,10 @@ fn main() -> ExitCode {
             }
         };
         let cycles = ((REAL_TIME * seconds) as i64).min(manifest.ticks / MCLK_PER_CYCLE);
-        println!("{} ({}), {cycles} cycles, best of {repeat}", manifest.name, manifest.variant);
+        println!(
+            "{} ({}), {cycles} cycles, best of {repeat}",
+            manifest.name, manifest.variant
+        );
         for &(label, enabled) in &modes {
             let best = (0..repeat)
                 .map(|_| run(&manifest, cycles, enabled))
