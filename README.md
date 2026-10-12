@@ -117,7 +117,7 @@ the other three:
 The reference records the decay gap in its own examples. The other two are gaps in
 its examples that this port found (see "Notes for the reference").
 
-CI (`.github/workflows/ci.yml`, if this repository is pushed) runs `cargo fmt --check`, `cargo clippy -D
+CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D
 warnings`, `cargo test` and rung 1 on main and pull requests. `cargo test` replays
 the thirteen example manifests against copies of the reference traces, without
 Python. Rungs 2-5 need the reference checked out, which is a private repository, so
