@@ -1,11 +1,11 @@
 [package]
-name = "ym2612-rust"
+name = "ym2612-rust-fast"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "A Rust YM2612 / YM3438 (OPN2) core transcribed from, and proven equivalent to, ym2612-python"
+description = "A fast fork of ym2612-rust, the YM2612 / YM3438 (OPN2) core, kept equivalent to ym2612-python on every cycle"
 license = "MIT"
-repository = "https://github.com/alewman/ym2612-rust"
+repository = "https://github.com/alewman/ym2612-rust-fast"
 publish = false
 
 [lib]
